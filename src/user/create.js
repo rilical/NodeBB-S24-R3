@@ -183,17 +183,15 @@ module.exports = function (User) {
         }
     };
 
-    User.uniqueUsername = async function (userData) {
-        let numTries = 0;
-        let { username } = userData;
-        while (true) {
-            /* eslint-disable no-await-in-loop */
-            const exists = await meta.userOrGroupExists(username);
-            if (!exists) {
-                return numTries ? username : null;
-            }
-            username = `${userData.username} ${numTries.toString(32)}`;
-            numTries += 1;
+    User.uniqueUsername = async function (username) {
+        let suffix = 1;
+        let newUsername = username;
+        let newUserslug = slugify(newUsername);
+        while (await User.existsBySlug(newUserslug)) {
+            newUsername = `${username}${suffix}`;
+            newUserslug = slugify(newUsername);
+            suffix++;
         }
+        return newUsername;
     };
 };

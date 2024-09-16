@@ -79,131 +79,106 @@ define('forum/register', [
                         }
                         if (data.next) {
                             const pathname = utils.urlToLocation(data.next).pathname;
-
-                            const params = utils.params({ url: data.next });
-                            params.registered = true;
-                            const qs = decodeURIComponent($.param(params));
-
-                            window.location.href = pathname + '?' + qs;
-                        } else if (data.message) {
-                            translator.translate(data.message, function (msg) {
-                                bootbox.alert(msg);
-                                ajaxify.go('/');
-                            });
+                            window.location.href = pathname;
                         }
                     },
-                    error: function (data) {
-                        translator.translate(data.responseText, config.defaultLang, function (translated) {
-                            if (data.status === 403 && data.responseText === 'Forbidden') {
-                                window.location.href = config.relative_path + '/register?error=csrf-invalid';
-                            } else {
-                                errorEl.find('p').text(translated);
-                                errorEl.removeClass('hidden');
-                                registerBtn.removeClass('disabled');
-                            }
-                        });
+                    error: function (xhr) {
+                        registerBtn.removeClass('disabled');
+                        const error = xhr.responseJSON && xhr.responseJSON.message;
+                        if (error && error.includes('[[error:username-taken-suggestion')) {
+                            const suggestedUsername = error.split(',')[1].trim();
+                            showError(errorEl, `Username is taken. How about "${suggestedUsername}"?`);
+                        } else {
+                            showError(errorEl, error || 'An unknown error occurred');
+                        }
                     },
                 });
             });
         });
 
-        // Set initial focus
-        $('#username').focus();
-    };
+        function validateUsername(username, callback) {
+            const username_notify = $('#username-notify');
+            if (!username) {
+                showError(username_notify, '[[error:invalid-username]]');
+                return callback();
+            }
 
-    function validateUsername(username, callback) {
-        callback = callback || function () {};
-
-        const username_notify = $('#username-notify');
-        const userslug = slugify(username);
-        if (username.length < ajaxify.data.minimumUsernameLength ||
-            userslug.length < ajaxify.data.minimumUsernameLength) {
-            showError(username_notify, '[[error:username-too-short]]');
-        } else if (username.length > ajaxify.data.maximumUsernameLength) {
-            showError(username_notify, '[[error:username-too-long]]');
-        } else if (!utils.isUserNameValid(username) || !userslug) {
-            showError(username_notify, '[[error:invalid-username]]');
-        } else {
-            Promise.allSettled([
-                api.head(`/users/bySlug/${username}`, {}),
-                api.head(`/groups/${username}`, {}),
-            ]).then((results) => {
-                if (results.every(obj => obj.status === 'rejected')) {
+            api.head(`/user/${slugify(username)}`, {}, (err, status) => {
+                if (status === 404) {
                     showSuccess(username_notify, successIcon);
                 } else {
                     showError(username_notify, '[[error:username-taken]]');
                 }
-
                 callback();
             });
         }
-    }
 
-    function validatePassword(password, password_confirm) {
-        const password_notify = $('#password-notify');
-        const password_confirm_notify = $('#password-confirm-notify');
+        function validatePassword(password, password_confirm) {
+            const password_notify = $('#password-notify');
+            const password_confirm_notify = $('#password-confirm-notify');
 
-        try {
-            utils.assertPasswordValidity(password, zxcvbn);
+            try {
+                utils.assertPasswordValidity(password, zxcvbn);
 
-            if (password === $('#username').val()) {
-                throw new Error('[[user:password_same_as_username]]');
+                if (password === $('#username').val()) {
+                    throw new Error('[[user:password_same_as_username]]');
+                }
+
+                showSuccess(password_notify, successIcon);
+            } catch (err) {
+                showError(password_notify, err.message);
             }
 
-            showSuccess(password_notify, successIcon);
-        } catch (err) {
-            showError(password_notify, err.message);
+            if (password !== password_confirm && password_confirm !== '') {
+                showError(password_confirm_notify, '[[user:change_password_error_match]]');
+            }
         }
 
-        if (password !== password_confirm && password_confirm !== '') {
-            showError(password_confirm_notify, '[[user:change_password_error_match]]');
+        function validatePasswordConfirm(password, password_confirm) {
+            const password_notify = $('#password-notify');
+            const password_confirm_notify = $('#password-confirm-notify');
+
+            if (!password || password_notify.hasClass('alert-error')) {
+                return;
+            }
+
+            if (password !== password_confirm) {
+                showError(password_confirm_notify, '[[user:change_password_error_match]]');
+            } else {
+                showSuccess(password_confirm_notify, successIcon);
+            }
         }
-    }
 
-    function validatePasswordConfirm(password, password_confirm) {
-        const password_notify = $('#password-notify');
-        const password_confirm_notify = $('#password-confirm-notify');
-
-        if (!password || password_notify.hasClass('alert-error')) {
-            return;
+        function showError(element, msg) {
+            translator.translate(msg, function (msg) {
+                element.html(msg);
+                element.parent()
+                    .removeClass('register-success')
+                    .addClass('register-danger');
+                element.show();
+            });
+            validationError = true;
         }
 
-        if (password !== password_confirm) {
-            showError(password_confirm_notify, '[[user:change_password_error_match]]');
-        } else {
-            showSuccess(password_confirm_notify, successIcon);
+        function showSuccess(element, msg) {
+            translator.translate(msg, function (msg) {
+                element.html(msg);
+                element.parent()
+                    .removeClass('register-danger')
+                    .addClass('register-success');
+                element.show();
+            });
         }
-    }
 
-    function showError(element, msg) {
-        translator.translate(msg, function (msg) {
-            element.html(msg);
-            element.parent()
-                .removeClass('register-success')
-                .addClass('register-danger');
-            element.show();
-        });
-        validationError = true;
-    }
+        function handleLanguageOverride() {
+            if (!app.user.uid && config.defaultLang !== config.userLang) {
+                const formEl = $('[component="register/local"]');
+                const langEl = $('<input type="hidden" name="userLang" value="' + config.userLang + '" />');
 
-    function showSuccess(element, msg) {
-        translator.translate(msg, function (msg) {
-            element.html(msg);
-            element.parent()
-                .removeClass('register-danger')
-                .addClass('register-success');
-            element.show();
-        });
-    }
-
-    function handleLanguageOverride() {
-        if (!app.user.uid && config.defaultLang !== config.userLang) {
-            const formEl = $('[component="register/local"]');
-            const langEl = $('<input type="hidden" name="userLang" value="' + config.userLang + '" />');
-
-            formEl.append(langEl);
+                formEl.append(langEl);
+            }
         }
-    }
+    };
 
     return Register;
 });

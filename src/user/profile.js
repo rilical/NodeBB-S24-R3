@@ -127,7 +127,16 @@ module.exports = function (User) {
         }
         const exists = await User.existsBySlug(userslug);
         if (exists) {
-            throw new Error('[[error:username-taken]]');
+            // Suggest a new username by appending a suffix
+            let suffix = 1;
+            let newUsername = `${data.username}${suffix}`;
+            let newUserslug = slugify(newUsername);
+            while (await User.existsBySlug(newUserslug)) {
+                suffix++;
+                newUsername = `${data.username}${suffix}`;
+                newUserslug = slugify(newUsername);
+            }
+            throw new Error(`[[error:username-taken-suggestion, ${newUsername}]]`);
         }
 
         const { error } = await plugins.hooks.fire('filter:username.check', {
